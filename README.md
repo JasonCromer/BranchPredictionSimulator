@@ -11,7 +11,7 @@ To execute System one, run the following command:
 java SystemOne.java [path to trace file]
 ```
 
-To execute System two, state the path file, in addition to how many branch-predictor entries (N), and how many branch-target-buffer entries (M).
+To execute System two, state the path file, in addition to how many branch-predictor entries (N), and how many branch-target-buffer entries (M). Both N and M must be logrithmic powers of 2, i.e. choosing 16 for N and 4 for M would be a standard to default to.
 ```
 java SystemTwo.java [path to trace file] [N] [M]
 ```
