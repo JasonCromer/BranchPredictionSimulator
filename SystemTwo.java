@@ -1,10 +1,7 @@
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.Arrays;
 
 import static java.lang.System.exit;
 
@@ -24,8 +21,9 @@ public class SystemTwo {
     private int mNumBTBAccesses;
     private int mNumMisPredictions;
     private int mNumBranches;
-    private Map<Integer, Integer> mPredictionsMap = new HashMap<>();
-    private Map<Integer, List<String>> mBranchTargetBuffer = new HashMap<>();
+    private int[] mPredictionBuffer;
+    private int[][] mBranchTargetBuffer;
+
 
     public SystemTwo(String filePath) {
         try {
@@ -38,6 +36,9 @@ public class SystemTwo {
 
     private void startDynamicPrediction(final int N, final int M, boolean verboseModeEnabled) {
         String[] tokens = mContent.split("\\s+");
+        mPredictionBuffer = new int[N];
+        Arrays.fill(mPredictionBuffer, PREDICTION_SEMI_NOT_TAKEN);
+        mBranchTargetBuffer = new int[M][3];
         int orderCount = 0;
         int debugPrintPreviousPrediction = PREDICTION_SEMI_NOT_TAKEN;
         int debugPrintCurrentPrediction;
@@ -52,23 +53,24 @@ public class SystemTwo {
             }
 
             final String currentBinaryAddress = hexToBinary(tokens[i]);
-            final String currentTag = getBtbTag(currentBinaryAddress, M);
-            final String targetAddress = tokens[i + 2];
+            final int currentTag = getBtbTag(currentBinaryAddress, M);
+            final int targetAddress = Integer.parseInt(tokens[i + 2], 16);
             final int currentBtbIndex = getNBitNumber(currentBinaryAddress, M);
             final int currentPrediction = Integer.parseInt(tokens[i + 3]);
             final int predictorIndex = getNBitNumber(currentBinaryAddress, N);
 
-            if (mPredictionsMap.containsKey(predictorIndex)) {
-                int previousPrediction = mPredictionsMap.get(predictorIndex);
+            // Check if index is in the prediction buffer
+            if (predictorIndex >= 0 && predictorIndex < N) {
+                int previousPrediction = mPredictionBuffer[predictorIndex];
                 debugPrintPreviousPrediction = previousPrediction;
 
                 // Check BTB entry for miss if the branch is taken
-                if (previousPrediction >= PREDICTION_SEMI_TAKEN && mBranchTargetBuffer.containsKey(currentBtbIndex)) {
-                    final List<String> bufferList =  mBranchTargetBuffer.get(currentBtbIndex);
+                if (previousPrediction >= PREDICTION_SEMI_TAKEN && currentBtbIndex >= 0 && currentBtbIndex < M) {
+                    final int[] bufferList =  mBranchTargetBuffer[currentBtbIndex];
                     mNumBTBAccesses++;
 
                     // Check for BTB miss
-                    if (!bufferList.get(BTB_VALID_BIT_INDEX).equals("1") || !bufferList.get(BTB_TAG_INDEX).equals(currentTag)) {
+                    if (bufferList[BTB_VALID_BIT_INDEX] != 1 || bufferList[BTB_TAG_INDEX] != currentTag) {
                         mNumBTBMisses++;
                     }
                 }
@@ -84,11 +86,11 @@ public class SystemTwo {
 
                 // Update BTB if action is to take the branch, otherwise, ignore
                 if (currentPrediction == 1) {
-                    mBranchTargetBuffer.put(currentBtbIndex, constructBTBLIST(currentTag, targetAddress));
+                    mBranchTargetBuffer[currentBtbIndex] = constructBTBLIST(currentTag, targetAddress);
                 }
             } else {
                 // Init new BTB buffer entry and new prediction entry
-                mBranchTargetBuffer.put(currentBtbIndex, constructBTBLIST(currentTag, targetAddress));
+                mBranchTargetBuffer[currentBtbIndex] = constructBTBLIST(currentTag, targetAddress);
                 debugPrintCurrentPrediction = updatePrediction(PREDICTION_SEMI_NOT_TAKEN, currentPrediction, predictorIndex);
             }
 
@@ -99,13 +101,12 @@ public class SystemTwo {
                 System.out.print(" " + debugPrintPreviousPrediction);
                 System.out.print(" " + debugPrintCurrentPrediction);
                 System.out.print(" " + currentBtbIndex);
-                System.out.print(" " + currentTag);
+                System.out.print(" " + Integer.toString(currentTag, 16));
                 System.out.print(" " + mNumBTBAccesses);
                 System.out.print(" " + mNumBTBMisses);
                 orderCount++;
             }
         }
-
         System.out.println("\n");
     }
 
@@ -124,11 +125,9 @@ public class SystemTwo {
      * minus the 2 discarded bits. i.e. :
      * 1100 1000 1010 1000, where m = 4 would return: |1100 1000 1010| 1000, or 1100 1000 1010
      */
-    private String getBtbTag(String binaryNumber, int m) {
+    private int getBtbTag(String binaryNumber, int m) {
         String tag = binaryNumber.substring(0, binaryNumber.length() - logBaseTwo(m) - 2);
-        int hexTag = Integer.parseInt(tag, 2);
-        return Integer.toString(hexTag, 16);
-
+        return Integer.parseInt(tag, 2);
     }
 
     private int logBaseTwo(int x) {
@@ -143,11 +142,11 @@ public class SystemTwo {
     /**
      * Constructs a list for creating/updating a BTB entry
      */
-    private List<String> constructBTBLIST(String tag, String targetAddress) {
-        List<String> bufferList = new ArrayList<>(3);
-        bufferList.add(BTB_VALID_BIT_INDEX, "1");
-        bufferList.add(BTB_TAG_INDEX, tag);
-        bufferList.add(BTB_BTA_INDEX, targetAddress);
+    private int[] constructBTBLIST(int tag, int targetAddress) {
+        int[] bufferList = new int[3];
+        bufferList[BTB_VALID_BIT_INDEX] = 1;
+        bufferList[BTB_TAG_INDEX] = tag;
+        bufferList[BTB_BTA_INDEX] = targetAddress;
 
         return bufferList;
     }
@@ -164,10 +163,10 @@ public class SystemTwo {
      */
     private int updatePrediction(int previousPrediction, int currentPrediction, int predictorIndex) {
         if (currentPrediction == 1 && previousPrediction < PREDICTION_TAKEN) {
-            mPredictionsMap.put(predictorIndex, previousPrediction + 1);
+            mPredictionBuffer[predictorIndex] = previousPrediction + 1;
             return previousPrediction + 1;
         } else if (currentPrediction == 0 && previousPrediction > PREDICTION_NOT_TAKEN) {
-            mPredictionsMap.put(predictorIndex, previousPrediction - 1);
+            mPredictionBuffer[predictorIndex] = previousPrediction - 1;
             return previousPrediction - 1;
         }
 
